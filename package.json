@@ -17,7 +17,23 @@
         "command": "kunterbunt.helloWorld",
         "title": "Hello World"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Kunterbunt",
+      "properties": {
+        "kunterbunt.mode": {
+          "type": "string",
+          "enum": ["light", "dark"],
+          "default": "dark",
+          "description": "Color mode used by Kunterbunt."
+        },
+        "kunterbunt.salt": {
+          "type": "string",
+          "default": "",
+          "description": "Salt string added to hashing."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
