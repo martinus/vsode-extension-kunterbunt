@@ -71,7 +71,7 @@ async function applyColors(channel: vscode.OutputChannel): Promise<void> {
 	}
 
 	// --- Activity bar ---
-	const { hue: activityHue, grey } = branchToHue(branch);
+	const { hue: activityHue, grey } = branchToHue(branch, salt);
 
 	let activityS: number, activityL: number, activityFg: string, activityInactiveFg: string;
 	if (grey) {

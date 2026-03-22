@@ -178,6 +178,12 @@ suite('branchToHue', () => {
 		assert.notStrictEqual(a.hue, b.hue);
 	});
 
+	test('unknown prefix hash changes when salt changes', () => {
+		const a = branchToHue('experiment/foo', 'salt-a');
+		const b = branchToHue('experiment/foo', 'salt-b');
+		assert.notStrictEqual(a.hue, b.hue);
+	});
+
 	// --- No prefix → hash whole branch ---
 
 	test('branch without slash hashes the full name', () => {
@@ -185,6 +191,12 @@ suite('branchToHue', () => {
 		const b = branchToHue('other-branch');
 		assert.notStrictEqual(a.hue, b.hue);
 		assert.strictEqual(a.grey, false);
+	});
+
+	test('branch without slash hash changes when salt changes', () => {
+		const a = branchToHue('my-branch', 'salt-a');
+		const b = branchToHue('my-branch', 'salt-b');
+		assert.notStrictEqual(a.hue, b.hue);
 	});
 
 	// --- Edge cases ---
@@ -210,5 +222,12 @@ suite('branchToHue', () => {
 	test('nested slashes use only the first segment as prefix', () => {
 		// "feature/sub/detail" should still match "feature" prefix → hue 120.
 		assert.strictEqual(branchToHue('feature/sub/detail').hue, 120);
+	});
+
+	test('fixed mappings are not affected by salt', () => {
+		assert.strictEqual(branchToHue('main', 'salt-a').hue, 220);
+		assert.strictEqual(branchToHue('main', 'salt-b').hue, 220);
+		assert.strictEqual(branchToHue('feature/x', 'salt-a').hue, 120);
+		assert.strictEqual(branchToHue('feature/x', 'salt-b').hue, 120);
 	});
 });

@@ -44,7 +44,7 @@ export function hslToHex(h: number, s: number, l: number): string {
 // hues. task/chore return grey=true (saturation forced to 0). For any other
 // prefix the prefix itself is hashed; for branches with no slash the whole
 // branch name is hashed.
-export function branchToHue(branch: string): { hue: number; grey: boolean } {
+export function branchToHue(branch: string, salt = ''): { hue: number; grey: boolean } {
 	const lower = branch.toLowerCase();
 
 	if (lower === 'main' || lower === 'master') {
@@ -64,7 +64,7 @@ export function branchToHue(branch: string): { hue: number; grey: boolean } {
 		default: {
 			// Hash the prefix when present; otherwise hash the whole branch name.
 			const hashInput = prefix !== '' ? prefix : branch;
-			return { hue: cyrb53(hashInput) % 360, grey: false };
+			return { hue: cyrb53(`${hashInput}|${salt}`) % 360, grey: false };
 		}
 	}
 }
