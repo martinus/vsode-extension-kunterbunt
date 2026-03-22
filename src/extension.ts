@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import { execSync } from 'child_process';
+import { watch, existsSync } from 'fs';
+import { join } from 'path';
 
 // ---------------------------------------------------------------------------
 // Hashing
@@ -98,6 +100,12 @@ function branchToHue(branch: string): { hue: number; grey: boolean } {
 // Color application
 // ---------------------------------------------------------------------------
 
+// Track the last successfully resolved git values so we can detect transient
+// git failures (e.g. index.lock held during rebase) and avoid overwriting
+// good colors with empty-string defaults.
+let lastRemoteUrl: string | undefined;
+let lastBranch: string | undefined;
+
 // Computes and writes all Kunterbunt-managed color customizations in a single
 // update call to avoid any read-modify-write races on colorCustomizations.
 //   Title bar  — hue derived from git remote URL + salt (stable per repo)
@@ -109,8 +117,20 @@ async function applyColors(channel: vscode.OutputChannel): Promise<void> {
 
 	const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
 
+	// --- Resolve git state, falling back to previous values on failure ---
+	let remoteUrl = workspaceRoot ? getGitRemoteUrl(workspaceRoot) : '';
+	let branch = workspaceRoot ? getGitBranch(workspaceRoot) : '';
+
+	if (workspaceRoot && remoteUrl === '' && lastRemoteUrl !== undefined) {
+		remoteUrl = lastRemoteUrl;
+	}
+	if (workspaceRoot && branch === '' && lastBranch !== undefined) {
+		branch = lastBranch;
+	}
+	lastRemoteUrl = remoteUrl;
+	lastBranch = branch;
+
 	// --- Title bar ---
-	const remoteUrl = workspaceRoot ? getGitRemoteUrl(workspaceRoot) : '';
 	const titleHue = cyrb53(`${remoteUrl}|${salt}`) % 360;
 
 	let titleS: number, titleLActive: number, titleLInactive: number, titleFg: string;
@@ -121,7 +141,6 @@ async function applyColors(channel: vscode.OutputChannel): Promise<void> {
 	}
 
 	// --- Activity bar ---
-	const branch = workspaceRoot ? getGitBranch(workspaceRoot) : '';
 	const { hue: activityHue, grey } = branchToHue(branch);
 
 	let activityS: number, activityL: number, activityFg: string, activityInactiveFg: string;
@@ -172,29 +191,57 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 	context.subscriptions.push(disposable);
 
-	const apply = () => applyColors(channel).catch(err => {
-		vscode.window.showErrorMessage(`Kunterbunt: failed to apply colors: ${err}`);
-	});
+	// Debounce: collapse rapid consecutive triggers into a single call so
+	// we only apply once even when multiple events fire close together.
+	let applyTimer: ReturnType<typeof setTimeout> | undefined;
+	const scheduleApply = () => {
+		if (applyTimer !== undefined) { clearTimeout(applyTimer); }
+		applyTimer = setTimeout(() => {
+			applyColors(channel).catch(err => {
+				vscode.window.showErrorMessage(`Kunterbunt: failed to apply colors: ${err}`);
+			});
+		}, 300);
+	};
 
-	// Apply on startup.
-	apply();
+	// Watch .git/HEAD with Node's fs.watch — VS Code's createFileSystemWatcher
+	// does not reliably deliver events for files inside .git/.
+	const watchGitHead = (folderPath: string) => {
+		const headPath = join(folderPath, '.git', 'HEAD');
+		if (!existsSync(headPath)) { return; }
+		try {
+			const watcher = watch(headPath, () => {
+				channel.appendLine('.git/HEAD changed — scheduling color update');
+				scheduleApply();
+			});
+			context.subscriptions.push({ dispose: () => watcher.close() });
+		} catch (err) {
+			channel.appendLine(`Could not watch ${headPath}: ${err}`);
+		}
+	};
+
+	// Apply on startup and set up HEAD watchers for all current folders.
+	scheduleApply();
+	for (const folder of vscode.workspace.workspaceFolders ?? []) {
+		watchGitHead(folder.uri.fsPath);
+	}
 
 	// Re-apply when kunterbunt settings (mode, salt) change.
 	context.subscriptions.push(
 		vscode.workspace.onDidChangeConfiguration(event => {
-			if (event.affectsConfiguration('kunterbunt')) { apply(); }
+			if (event.affectsConfiguration('kunterbunt')) { scheduleApply(); }
 		})
 	);
 
-	// Re-apply when the branch changes — git rewrites .git/HEAD on every checkout.
-	const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-	if (workspaceUri) {
-		const headWatcher = vscode.workspace.createFileSystemWatcher(
-			new vscode.RelativePattern(vscode.Uri.joinPath(workspaceUri, '.git'), 'HEAD')
-		);
-		headWatcher.onDidChange(apply);
-		context.subscriptions.push(headWatcher);
-	}
+	// Re-apply and register watchers when folders are added (e.g. "open folder"
+	// into an already-running window, or multi-root workspace changes).
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeWorkspaceFolders(event => {
+			scheduleApply();
+			for (const folder of event.added) {
+				watchGitHead(folder.uri.fsPath);
+			}
+		})
+	);
 }
 
 export function deactivate() {}
