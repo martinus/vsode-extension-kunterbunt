@@ -104,6 +104,12 @@ async function applyColors(channel: vscode.OutputChannel): Promise<void> {
 		'activityBar.background':         hslToHex(activityHue, activityS, activityL),
 		'activityBar.foreground':         activityFg,
 		'activityBar.inactiveForeground': activityInactiveFg,
+		'statusBar.background':           hslToHex(activityHue, activityS, activityL),
+		'statusBar.foreground':           activityFg,
+		'statusBar.noFolderBackground':   hslToHex(activityHue, activityS, activityL),
+		'statusBar.noFolderForeground':   activityFg,
+		'statusBar.debuggingBackground':  hslToHex(activityHue, activityS, activityL),
+		'statusBar.debuggingForeground':  activityFg,
 	}, target);
 }
 
