@@ -34,6 +34,15 @@ function getGitRemoteUrl(workspaceRoot: string): string {
 	}
 }
 
+// Returns the current branch name, or "" on failure (e.g. detached HEAD).
+function getGitBranch(workspaceRoot: string): string {
+	try {
+		return execSync('git symbolic-ref --short HEAD', { cwd: workspaceRoot, encoding: 'utf8' }).trim();
+	} catch {
+		return '';
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Color utilities
 // ---------------------------------------------------------------------------
@@ -53,36 +62,83 @@ function hslToHex(h: number, s: number, l: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Title bar color logic
+// Branch-to-color mapping
 // ---------------------------------------------------------------------------
 
-// Reads the kunterbunt settings, derives a hue from the git remote URL + salt,
-// and writes the appropriate HSL-based colors to workbench.colorCustomizations.
-async function applyTitleBarColor(channel: vscode.OutputChannel): Promise<void> {
+// Well-known branch names and prefixes map to fixed, semantically meaningful
+// hues. task/chore return grey=true (saturation forced to 0). For any other
+// prefix the prefix itself is hashed; for branches with no slash the whole
+// branch name is hashed.
+function branchToHue(branch: string): { hue: number; grey: boolean } {
+	const lower = branch.toLowerCase();
+
+	if (lower === 'main' || lower === 'master') {
+		return { hue: 220, grey: false }; // Blue — stable baseline
+	}
+
+	const slashIdx = branch.indexOf('/');
+	const prefix = slashIdx >= 0 ? lower.slice(0, slashIdx) : '';
+
+	switch (prefix) {
+		case 'feature':  return { hue: 120, grey: false }; // Green  — new development
+		case 'bugfix':   return { hue:  55, grey: false }; // Yellow — needs attention
+		case 'hotfix':   return { hue:   0, grey: false }; // Red    — critical/danger
+		case 'release':  return { hue: 270, grey: false }; // Purple — preparing production
+		case 'task':
+		case 'chore':    return { hue:   0, grey: true  }; // Grey   — routine maintenance
+		default: {
+			// Hash the prefix when present; otherwise hash the whole branch name.
+			const hashInput = prefix !== '' ? prefix : branch;
+			return { hue: cyrb53(hashInput) % 360, grey: false };
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Color application
+// ---------------------------------------------------------------------------
+
+// Computes and writes all Kunterbunt-managed color customizations in a single
+// update call to avoid any read-modify-write races on colorCustomizations.
+//   Title bar  — hue derived from git remote URL + salt (stable per repo)
+//   Activity bar — hue derived from current branch name (changes on checkout)
+async function applyColors(channel: vscode.OutputChannel): Promise<void> {
 	const config = vscode.workspace.getConfiguration('kunterbunt');
 	const mode = config.get<string>('mode', 'dark');
 	const salt = config.get<string>('salt', '');
 
-	// Hash input: remoteUrl|salt — the pipe separator ensures salt is always
-	// distinct from the URL even when one of them is empty.
 	const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
+
+	// --- Title bar ---
 	const remoteUrl = workspaceRoot ? getGitRemoteUrl(workspaceRoot) : '';
-	const hue = cyrb53(`${remoteUrl}|${salt}`) % 360;
+	const titleHue = cyrb53(`${remoteUrl}|${salt}`) % 360;
 
-	channel.appendLine(`Remote URL: "${remoteUrl}", hue: ${hue}, mode: ${mode}`);
-
-	// Saturation and lightness differ per mode so the bar is legible in both themes.
-	let s: number, lActive: number, lInactive: number, fg: string;
+	let titleS: number, titleLActive: number, titleLInactive: number, titleFg: string;
 	if (mode === 'light') {
-		s = 80; lActive = 85; lInactive = 90; fg = '#1a1a1a';
+		titleS = 80; titleLActive = 85; titleLInactive = 90; titleFg = '#1a1a1a';
 	} else {
-		s = 60; lActive = 25; lInactive = 20; fg = '#f0f0f0';
+		titleS = 60; titleLActive = 25; titleLInactive = 20; titleFg = '#f0f0f0';
 	}
 
-	const activeBackground = hslToHex(hue, s, lActive);
-	const inactiveBackground = hslToHex(hue, s, lInactive);
+	// --- Activity bar ---
+	const branch = workspaceRoot ? getGitBranch(workspaceRoot) : '';
+	const { hue: activityHue, grey } = branchToHue(branch);
 
-	// Prefer workspace-scoped settings so other windows are not affected.
+	let activityS: number, activityL: number, activityFg: string, activityInactiveFg: string;
+	if (grey) {
+		activityS = 0;
+		if (mode === 'light') { activityL = 75; activityFg = '#1a1a1a'; activityInactiveFg = '#555555'; }
+		else                  { activityL = 30; activityFg = '#f0f0f0'; activityInactiveFg = '#888888'; }
+	} else {
+		if (mode === 'light') { activityS = 75; activityL = 75; activityFg = '#1a1a1a'; activityInactiveFg = '#444444'; }
+		else                  { activityS = 60; activityL = 25; activityFg = '#f0f0f0'; activityInactiveFg = '#aaaaaa'; }
+	}
+
+	channel.appendLine(
+		`Remote: "${remoteUrl}" → titleHue: ${titleHue} | Branch: "${branch}" → activityHue: ${activityHue}${grey ? ' (grey)' : ''} | mode: ${mode}`
+	);
+
+	// Prefer workspace scope so other VS Code windows are not affected.
 	const target = vscode.workspace.workspaceFolders
 		? vscode.ConfigurationTarget.Workspace
 		: vscode.ConfigurationTarget.Global;
@@ -92,10 +148,13 @@ async function applyTitleBarColor(channel: vscode.OutputChannel): Promise<void> 
 
 	await workbenchConfig.update('colorCustomizations', {
 		...existing,
-		'titleBar.activeBackground': activeBackground,
-		'titleBar.activeForeground': fg,
-		'titleBar.inactiveBackground': inactiveBackground,
-		'titleBar.inactiveForeground': fg,
+		'titleBar.activeBackground':      hslToHex(titleHue, titleS, titleLActive),
+		'titleBar.activeForeground':      titleFg,
+		'titleBar.inactiveBackground':    hslToHex(titleHue, titleS, titleLInactive),
+		'titleBar.inactiveForeground':    titleFg,
+		'activityBar.background':         hslToHex(activityHue, activityS, activityL),
+		'activityBar.foreground':         activityFg,
+		'activityBar.inactiveForeground': activityInactiveFg,
 	}, target);
 }
 
@@ -113,19 +172,29 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 	context.subscriptions.push(disposable);
 
-	// Apply on startup, then re-apply whenever kunterbunt settings change.
-	applyTitleBarColor(channel).catch(err => {
-		vscode.window.showErrorMessage(`Kunterbunt: failed to apply title bar color: ${err}`);
+	const apply = () => applyColors(channel).catch(err => {
+		vscode.window.showErrorMessage(`Kunterbunt: failed to apply colors: ${err}`);
 	});
 
-	const configListener = vscode.workspace.onDidChangeConfiguration(event => {
-		if (event.affectsConfiguration('kunterbunt')) {
-			applyTitleBarColor(channel).catch(err => {
-				vscode.window.showErrorMessage(`Kunterbunt: failed to apply title bar color: ${err}`);
-			});
-		}
-	});
-	context.subscriptions.push(configListener);
+	// Apply on startup.
+	apply();
+
+	// Re-apply when kunterbunt settings (mode, salt) change.
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeConfiguration(event => {
+			if (event.affectsConfiguration('kunterbunt')) { apply(); }
+		})
+	);
+
+	// Re-apply when the branch changes — git rewrites .git/HEAD on every checkout.
+	const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+	if (workspaceUri) {
+		const headWatcher = vscode.workspace.createFileSystemWatcher(
+			new vscode.RelativePattern(vscode.Uri.joinPath(workspaceUri, '.git'), 'HEAD')
+		);
+		headWatcher.onDidChange(apply);
+		context.subscriptions.push(headWatcher);
+	}
 }
 
 export function deactivate() {}
