@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { execSync } from 'child_process';
 import { watch, existsSync } from 'fs';
 import { join } from 'path';
-import { cyrb53, hslToHex, branchToHue } from './colorUtils';
+import { cyrb53, hslToHex, branchToHue, hueToEmoji } from './colorUtils';
 
 // Minimal type surface for VS Code's built-in git extension API.
 // Full typings live in extensions/git/src/api/git.d.ts inside the VS Code repo.
@@ -202,6 +202,20 @@ async function applyColors(channel: vscode.OutputChannel): Promise<void> {
 		'statusBar.debuggingForeground': activityFg,
 		'statusBarItem.hoverBackground': activityHoverBackground,
 	}, target);
+
+	// Prepend colored square emojis to the window title so the repository
+	// and branch colors are visible even when the title bar uses the OS native theme.
+	const titleEmoji = hueToEmoji(titleHue);
+	const branchEmoji = hueToEmoji(activityHue);
+	const windowConfig = vscode.workspace.getConfiguration('window');
+	const currentTitle = windowConfig.get<string>('title', '');
+	// Strip any previously prepended square emojis before adding new ones.
+	const squarePattern = /^(?:[\u{1F7E5}\u{1F7E7}\u{1F7E8}\u{1F7E9}\u{1F7E6}\u{1F7EA}\u{1F7EB}]\s*){1,2}/u;
+	const stripped = currentTitle.replace(squarePattern, '');
+	const newTitle = `${titleEmoji}${branchEmoji} ${stripped}`;
+	if (currentTitle !== newTitle) {
+		await windowConfig.update('title', newTitle, target);
+	}
 }
 
 // ---------------------------------------------------------------------------

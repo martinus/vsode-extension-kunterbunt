@@ -40,6 +40,27 @@ export function hslToHex(h: number, s: number, l: number): string {
 // Branch-to-color mapping
 // ---------------------------------------------------------------------------
 
+// Maps a hue (0–360) to the closest colored square emoji.
+export function hueToEmoji(hue: number): string {
+	// Sorted by hue midpoint; last entry wraps around 0°.
+	const table: [number, string][] = [
+		[15, '🟥'],    // red        ~0°
+		[45, '🟧'],    // orange    ~30°
+		[75, '🟨'],    // yellow    ~60°
+		[165, '🟩'],   // green    ~120°
+		[255, '🟦'],   // blue     ~210°
+		[285, '🟪'],   // purple   ~270°
+		[345, '🟫'],   // brown    ~315°
+	];
+	const normalized = ((hue % 360) + 360) % 360;
+	for (const [boundary, emoji] of table) {
+		if (normalized < boundary) {
+			return emoji;
+		}
+	}
+	return '🟥'; // wraps past 345° back to red
+}
+
 // Maps a branch name to a hue (0–360) by hashing the branch name and salt.
 export function branchToHue(branch: string, salt = ''): number {
 	return cyrb53(`${branch}|${salt}`) % 360;
