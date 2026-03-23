@@ -13,12 +13,6 @@
   "activationEvents": ["onStartupFinished"],
   "main": "./dist/extension.js",
   "contributes": {
-    "commands": [
-      {
-        "command": "kunterbunt.helloWorld",
-        "title": "Hello World"
-      }
-    ],
     "configuration": {
       "title": "Kunterbunt",
       "properties": {

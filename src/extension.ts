@@ -223,7 +223,7 @@ async function applyColors(channel: vscode.OutputChannel): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
- * Activates the extension, registers commands and subscriptions, and starts
+ * Activates the extension, registers subscriptions, and starts
  * the git watchers that keep the workbench colors in sync with repository
  * state and Kunterbunt settings.
  */
@@ -231,11 +231,6 @@ export function activate(context: vscode.ExtensionContext) {
 	const channel = vscode.window.createOutputChannel('Kunterbunt');
 	context.subscriptions.push(channel);
 	channel.appendLine('Kunterbunt activated');
-
-	const disposable = vscode.commands.registerCommand('kunterbunt.helloWorld', () => {
-		vscode.window.showInformationMessage('Hello World from Kunterbunt!');
-	});
-	context.subscriptions.push(disposable);
 
 	// Debounce repeated triggers so a burst of file system and configuration
 	// events results in a single color recomputation.
