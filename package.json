@@ -2,8 +2,25 @@
   "name": "kunterbunt",
   "displayName": "Kunterbunt",
   "icon": "images/icon.png",
-  "description": "",
+  "description": "Give each repository its own look by tinting the title bar, activity bar, and status bar from your Git remote and branch.",
   "version": "0.0.1",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/martinus/vsode-extension-kunterbunt.git"
+  },
+  "homepage": "https://github.com/martinus/vsode-extension-kunterbunt#readme",
+  "bugs": {
+    "url": "https://github.com/martinus/vsode-extension-kunterbunt/issues"
+  },
+  "keywords": [
+    "git",
+    "branch",
+    "title bar",
+    "status bar",
+    "workspace colors",
+    "visual context"
+  ],
   "engines": {
     "vscode": "^1.110.0"
   },
