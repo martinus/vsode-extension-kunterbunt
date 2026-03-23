@@ -73,10 +73,7 @@ let lastRef: string | undefined;
 // Fixed foreground and effect constants for dark mode.
 const FOREGROUND = '#f0f0f0';
 const INACTIVE_FOREGROUND = '#aaaaaa';
-const GREY_INACTIVE_FOREGROUND = '#888888';
 
-// Grey branches get a small lightness boost so they don't look muddy.
-const GREY_LIGHTNESS_OFFSET = 5;
 // Inactive title bar recedes slightly behind the active one.
 const TITLE_INACTIVE_LIGHTNESS_OFFSET = -5;
 
@@ -149,11 +146,11 @@ async function applyColors(channel: vscode.OutputChannel): Promise<void> {
 	const titleInactiveLightness = baseLightness + TITLE_INACTIVE_LIGHTNESS_OFFSET;
 
 	// --- Activity bar ---
-	const { hue: activityHue, grey } = branchToHue(ref, hueId);
-	const activityS = grey ? 0 : baseSaturation;
-	const activityL = grey ? baseLightness + GREY_LIGHTNESS_OFFSET : baseLightness;
+	const activityHue = branchToHue(ref, hueId);
+	const activityS = baseSaturation;
+	const activityL = baseLightness;
 	const activityFg = FOREGROUND;
-	const activityInactiveFg = grey ? GREY_INACTIVE_FOREGROUND : INACTIVE_FOREGROUND;
+	const activityInactiveFg = INACTIVE_FOREGROUND;
 
 	const activityBackground = hslToHex(activityHue, activityS, activityL);
 	const activityHoverBackground = hslToHex(
@@ -175,7 +172,7 @@ async function applyColors(channel: vscode.OutputChannel): Promise<void> {
 	);
 
 	channel.appendLine(
-		`Remote: "${remoteUrl}" → titleHue: ${titleHue} | Ref: "${ref}" → activityHue: ${activityHue}${grey ? ' (grey)' : ''} | saturation: ${baseSaturation} | lightness: ${baseLightness}`
+		`Remote: "${remoteUrl}" → titleHue: ${titleHue} | Ref: "${ref}" → activityHue: ${activityHue} | saturation: ${baseSaturation} | lightness: ${baseLightness}`
 	);
 
 	// Prefer workspace scope so other VS Code windows are not affected.

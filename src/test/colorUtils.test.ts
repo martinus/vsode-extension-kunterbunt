@@ -97,114 +97,12 @@ suite('hslToHex', () => {
 });
 
 suite('branchToHue', () => {
-	// --- Well-known branch names ---
-
-	test('main → blue (220), not grey', () => {
-		const result = branchToHue('main');
-		assert.strictEqual(result.hue, 220);
-		assert.strictEqual(result.grey, false);
+	test('returns a number', () => {
+		assert.strictEqual(typeof branchToHue('main'), 'number');
 	});
 
-	test('master → blue (220), not grey', () => {
-		const result = branchToHue('master');
-		assert.strictEqual(result.hue, 220);
-		assert.strictEqual(result.grey, false);
-	});
-
-	test('main/master are case-insensitive', () => {
-		assert.strictEqual(branchToHue('Main').hue, 220);
-		assert.strictEqual(branchToHue('MASTER').hue, 220);
-	});
-
-	// --- Well-known prefixes ---
-
-	test('feature/ → green (120)', () => {
-		const result = branchToHue('feature/add-login');
-		assert.strictEqual(result.hue, 120);
-		assert.strictEqual(result.grey, false);
-	});
-
-	test('bugfix/ → yellow (55)', () => {
-		const result = branchToHue('bugfix/fix-crash');
-		assert.strictEqual(result.hue, 55);
-		assert.strictEqual(result.grey, false);
-	});
-
-	test('hotfix/ → red (0)', () => {
-		const result = branchToHue('hotfix/urgent');
-		assert.strictEqual(result.hue, 0);
-		assert.strictEqual(result.grey, false);
-	});
-
-	test('release/ → purple (270)', () => {
-		const result = branchToHue('release/v2.0');
-		assert.strictEqual(result.hue, 270);
-		assert.strictEqual(result.grey, false);
-	});
-
-	test('task/ → grey', () => {
-		const result = branchToHue('task/cleanup');
-		assert.strictEqual(result.grey, true);
-	});
-
-	test('chore/ → grey', () => {
-		const result = branchToHue('chore/update-deps');
-		assert.strictEqual(result.grey, true);
-	});
-
-	// --- Prefix case-insensitivity ---
-
-	test('Feature/ (capitalized) → green (120)', () => {
-		assert.strictEqual(branchToHue('Feature/something').hue, 120);
-	});
-
-	test('HOTFIX/ (uppercase) → red (0)', () => {
-		assert.strictEqual(branchToHue('HOTFIX/critical').hue, 0);
-	});
-
-	// --- Unknown prefix → hashed ---
-
-	test('unknown prefix hashes the prefix, not the full branch', () => {
-		const a = branchToHue('experiment/foo');
-		const b = branchToHue('experiment/bar');
-		// Same prefix → same hue.
-		assert.strictEqual(a.hue, b.hue);
-		assert.strictEqual(a.grey, false);
-	});
-
-	test('different unknown prefixes produce different hues', () => {
-		const a = branchToHue('experiment/foo');
-		const b = branchToHue('sandbox/foo');
-		assert.notStrictEqual(a.hue, b.hue);
-	});
-
-	test('unknown prefix hash changes when salt changes', () => {
-		const a = branchToHue('experiment/foo', 'salt-a');
-		const b = branchToHue('experiment/foo', 'salt-b');
-		assert.notStrictEqual(a.hue, b.hue);
-	});
-
-	// --- No prefix → hash whole branch ---
-
-	test('branch without slash hashes the full name', () => {
-		const a = branchToHue('my-branch');
-		const b = branchToHue('other-branch');
-		assert.notStrictEqual(a.hue, b.hue);
-		assert.strictEqual(a.grey, false);
-	});
-
-	test('branch without slash hash changes when salt changes', () => {
-		const a = branchToHue('my-branch', 'salt-a');
-		const b = branchToHue('my-branch', 'salt-b');
-		assert.notStrictEqual(a.hue, b.hue);
-	});
-
-	// --- Edge cases ---
-
-	test('empty string returns a result without throwing', () => {
-		const result = branchToHue('');
-		assert.strictEqual(typeof result.hue, 'number');
-		assert.strictEqual(typeof result.grey, 'boolean');
+	test('empty string returns a number without throwing', () => {
+		assert.strictEqual(typeof branchToHue(''), 'number');
 	});
 
 	test('hue is always in [0, 360)', () => {
@@ -214,20 +112,22 @@ suite('branchToHue', () => {
 			'no-prefix', '', 'a/b/c/d',
 		];
 		for (const branch of branches) {
-			const { hue } = branchToHue(branch);
+			const hue = branchToHue(branch);
 			assert.ok(hue >= 0 && hue < 360, `hue ${hue} out of range for "${branch}"`);
 		}
 	});
 
-	test('nested slashes use only the first segment as prefix', () => {
-		// "feature/sub/detail" should still match "feature" prefix → hue 120.
-		assert.strictEqual(branchToHue('feature/sub/detail').hue, 120);
+	test('different branches produce different hues', () => {
+		assert.notStrictEqual(branchToHue('my-branch'), branchToHue('other-branch'));
+		assert.notStrictEqual(branchToHue('experiment/foo'), branchToHue('sandbox/foo'));
 	});
 
-	test('fixed mappings are not affected by salt', () => {
-		assert.strictEqual(branchToHue('main', 'salt-a').hue, 220);
-		assert.strictEqual(branchToHue('main', 'salt-b').hue, 220);
-		assert.strictEqual(branchToHue('feature/x', 'salt-a').hue, 120);
-		assert.strictEqual(branchToHue('feature/x', 'salt-b').hue, 120);
+	test('same branch always produces the same hue', () => {
+		assert.strictEqual(branchToHue('feature/login'), branchToHue('feature/login'));
+	});
+
+	test('salt changes the hue', () => {
+		assert.notStrictEqual(branchToHue('experiment/foo', 'salt-a'), branchToHue('experiment/foo', 'salt-b'));
+		assert.notStrictEqual(branchToHue('my-branch', 'salt-a'), branchToHue('my-branch', 'salt-b'));
 	});
 });

@@ -40,31 +40,7 @@ export function hslToHex(h: number, s: number, l: number): string {
 // Branch-to-color mapping
 // ---------------------------------------------------------------------------
 
-// Well-known branch names and prefixes map to fixed, semantically meaningful
-// hues. task/chore return grey=true (saturation forced to 0). For any other
-// prefix the prefix itself is hashed; for branches with no slash the whole
-// branch name is hashed.
-export function branchToHue(branch: string, salt = ''): { hue: number; grey: boolean } {
-	const lower = branch.toLowerCase();
-
-	if (lower === 'main' || lower === 'master') {
-		return { hue: 220, grey: false }; // Blue — stable baseline
-	}
-
-	const slashIdx = branch.indexOf('/');
-	const prefix = slashIdx >= 0 ? lower.slice(0, slashIdx) : '';
-
-	switch (prefix) {
-		case 'feature':  return { hue: 120, grey: false }; // Green  — new development
-		case 'bugfix':   return { hue:  55, grey: false }; // Yellow — needs attention
-		case 'hotfix':   return { hue:   0, grey: false }; // Red    — critical/danger
-		case 'release':  return { hue: 270, grey: false }; // Purple — preparing production
-		case 'task':
-		case 'chore':    return { hue:   0, grey: true  }; // Grey   — routine maintenance
-		default: {
-			// Hash the prefix when present; otherwise hash the whole branch name.
-			const hashInput = prefix !== '' ? prefix : branch;
-			return { hue: cyrb53(`${hashInput}|${salt}`) % 360, grey: false };
-		}
-	}
+// Maps a branch name to a hue (0–360) by hashing the branch name and salt.
+export function branchToHue(branch: string, salt = ''): number {
+	return cyrb53(`${branch}|${salt}`) % 360;
 }
