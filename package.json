@@ -22,16 +22,24 @@
     "configuration": {
       "title": "Kunterbunt",
       "properties": {
-        "kunterbunt.mode": {
+        "kunterbunt.hueId": {
           "type": "string",
-          "enum": ["light", "dark"],
-          "default": "dark",
-          "description": "Color mode used by Kunterbunt."
+          "default": "k3f8x",
+          "markdownDescription": "An arbitrary string mixed into the hue hash. Change this to shift all generated colors without switching repositories — useful when two unrelated repos accidentally land on the same color."
         },
-        "kunterbunt.salt": {
-          "type": "string",
-          "default": "",
-          "description": "Salt string added to hashing."
+        "kunterbunt.saturation": {
+          "type": "number",
+          "default": 60,
+          "minimum": 0,
+          "maximum": 100,
+          "markdownDescription": "Color saturation (0–100) applied to title-bar and activity-bar backgrounds. Lower values produce greyer, more muted colors; higher values produce more vivid colors."
+        },
+        "kunterbunt.lightness": {
+          "type": "number",
+          "default": 25,
+          "minimum": 0,
+          "maximum": 100,
+          "markdownDescription": "Lightness (0–100) for title-bar and activity-bar backgrounds. Lower values produce darker backgrounds; higher values produce lighter backgrounds. Values in the range 15–40 work best for dark themes."
         }
       }
     }

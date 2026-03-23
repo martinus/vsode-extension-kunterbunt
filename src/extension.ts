@@ -70,104 +70,24 @@ function getGitRef(workspaceRoot: string): string {
 let lastRemoteUrl: string | undefined;
 let lastRef: string | undefined;
 
-type KunterbuntMode = 'light' | 'dark';
+// Fixed foreground and effect constants for dark mode.
+const FOREGROUND = '#f0f0f0';
+const INACTIVE_FOREGROUND = '#aaaaaa';
+const GREY_INACTIVE_FOREGROUND = '#888888';
 
-type TitleBarPalette = {
-	saturation: number;
-	activeLightness: number;
-	inactiveLightness: number;
-	foreground: string;
-};
+// Grey branches get a small lightness boost so they don't look muddy.
+const GREY_LIGHTNESS_OFFSET = 5;
+// Inactive title bar recedes slightly behind the active one.
+const TITLE_INACTIVE_LIGHTNESS_OFFSET = -5;
 
-type ActivityPalette = {
-	saturation: number;
-	baseLightness: number;
-	foreground: string;
-	inactiveForeground: string;
-};
-
-type ActivityEffects = {
-	hoverDelta: number;
-	hoverMax: number;
-	activeDelta: number;
-	activeMin?: number;
-	activeMax?: number;
-	activeBorderSaturation: number;
-	activeBorderLightness: number;
-};
-
-type ModeTuning = {
-	titleBar: TitleBarPalette;
-	activity: {
-		default: ActivityPalette;
-		grey: ActivityPalette;
-		effects: ActivityEffects;
-	};
-};
-
-// Central place for all color-tuning values. Adjust these numbers when you
-// want to change the visual feel without touching the color application logic.
-const MODE_TUNING: Record<KunterbuntMode, ModeTuning> = {
-	light: {
-		titleBar: {
-			saturation: 80, // Keep light title bars vivid enough to be identifiable.
-			activeLightness: 85, // Bright active title bar while preserving text contrast.
-			inactiveLightness: 90, // Slightly brighter inactive title bar for softer contrast.
-			foreground: '#1a1a1a', // Dark text that stays readable on light backgrounds.
-		},
-		activity: {
-			default: {
-				saturation: 75, // Main branch color intensity in light mode.
-				baseLightness: 75, // Default activity/status bar background lightness.
-				foreground: '#1a1a1a', // Foreground color for active icons and text.
-				inactiveForeground: '#444444', // Muted icons that still read on light backgrounds.
-			},
-			grey: {
-				saturation: 0, // Neutral branch variants intentionally remove hue.
-				baseLightness: 75, // Keep neutral branches aligned with light-mode base brightness.
-				foreground: '#1a1a1a', // Same foreground contrast as the colored variant.
-				inactiveForeground: '#555555', // Slightly softer muted foreground for greys.
-			},
-			effects: {
-				hoverDelta: 12, // Hover state gets lighter than the base background.
-				hoverMax: 95, // Cap hover brightness to avoid washing out the color.
-				activeDelta: 10, // Active item background shift relative to the base.
-				activeMax: 92, // Upper limit so active state remains visibly colored.
-				activeBorderSaturation: 90, // Fixed strong saturation for the opposite-hue indicator.
-				activeBorderLightness: 40, // Dark enough to stay visible in light mode.
-			},
-		},
-	},
-	dark: {
-		titleBar: {
-			saturation: 60, // Slightly restrained saturation reads better on dark chrome.
-			activeLightness: 25, // Dark active title bar with enough chroma to stand out.
-			inactiveLightness: 20, // Inactive title bar recedes a bit further into the frame.
-			foreground: '#f0f0f0', // Light text color for dark backgrounds.
-		},
-		activity: {
-			default: {
-				saturation: 60, // Main branch color intensity in dark mode.
-				baseLightness: 25, // Default activity/status bar darkness.
-				foreground: '#f0f0f0', // Foreground color for active icons and text.
-				inactiveForeground: '#aaaaaa', // Muted icons that still read on dark backgrounds.
-			},
-			grey: {
-				saturation: 0, // Neutral branch variants intentionally remove hue.
-				baseLightness: 30, // Grey mode is slightly lighter so it does not look muddy.
-				foreground: '#f0f0f0', // Same foreground contrast as the colored variant.
-				inactiveForeground: '#888888', // Muted foreground tuned for neutral dark backgrounds.
-			},
-			effects: {
-				hoverDelta: 14, // Hover state gets lighter than the base background.
-				hoverMax: 48, // Cap hover brightness so it stays within dark-mode chrome.
-				activeDelta: 12, // Active item background shift relative to the base.
-				activeMax: 42, // Upper limit so active state remains distinct but still dark.
-				activeBorderSaturation: 60, // Moderate saturation keeps the border visible without neon glow.
-				activeBorderLightness: 60, // Bright enough to stand out against the dark activity bar.
-			},
-		},
-	},
+// Hover / active state deltas and border tuning (dark mode).
+const ACTIVITY_EFFECTS = {
+	hoverDelta: 14,       // Hover state gets lighter than the base background.
+	hoverMax: 48,         // Cap hover brightness so it stays within dark-mode chrome.
+	activeDelta: 12,      // Active item background shift relative to the base.
+	activeMax: 42,        // Upper limit so active state remains distinct but still dark.
+	activeBorderSaturation: 60, // Moderate saturation keeps the border visible without neon glow.
+	activeBorderLightness: 60,  // Bright enough to stand out against the dark activity bar.
 };
 
 /**
@@ -195,9 +115,9 @@ function clampAdjustedLightness(base: number, delta: number, bounds: { min?: num
  */
 async function applyColors(channel: vscode.OutputChannel): Promise<void> {
 	const config = vscode.workspace.getConfiguration('kunterbunt');
-	const mode = config.get<KunterbuntMode>('mode', 'dark');
-	const salt = config.get<string>('salt', '');
-	const tuning = MODE_TUNING[mode];
+	const hueId = config.get<string>('hueId', '');
+	const baseSaturation = config.get<number>('saturation', 60);
+	const baseLightness = config.get<number>('lightness', 25);
 
 	const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
 
@@ -224,42 +144,38 @@ async function applyColors(channel: vscode.OutputChannel): Promise<void> {
 	lastRef = ref;
 
 	// --- Title bar ---
-	const titleHue = cyrb53(`${remoteUrl}|${salt}`) % 360;
-	const titleBar = tuning.titleBar;
+	const titleHue = cyrb53(`${remoteUrl}|${hueId}`) % 360;
+	const titleActiveLightness = baseLightness;
+	const titleInactiveLightness = baseLightness + TITLE_INACTIVE_LIGHTNESS_OFFSET;
 
 	// --- Activity bar ---
-	const { hue: activityHue, grey } = branchToHue(ref, salt);
-	const activityPalette = grey ? tuning.activity.grey : tuning.activity.default;
-	const activityEffects = tuning.activity.effects;
-	const activityS = activityPalette.saturation;
-	const activityL = activityPalette.baseLightness;
-	const activityFg = activityPalette.foreground;
-	const activityInactiveFg = activityPalette.inactiveForeground;
+	const { hue: activityHue, grey } = branchToHue(ref, hueId);
+	const activityS = grey ? 0 : baseSaturation;
+	const activityL = grey ? baseLightness + GREY_LIGHTNESS_OFFSET : baseLightness;
+	const activityFg = FOREGROUND;
+	const activityInactiveFg = grey ? GREY_INACTIVE_FOREGROUND : INACTIVE_FOREGROUND;
 
 	const activityBackground = hslToHex(activityHue, activityS, activityL);
 	const activityHoverBackground = hslToHex(
 		activityHue,
 		activityS,
-		clampAdjustedLightness(activityL, activityEffects.hoverDelta, { max: activityEffects.hoverMax })
+		clampAdjustedLightness(activityL, ACTIVITY_EFFECTS.hoverDelta, { max: ACTIVITY_EFFECTS.hoverMax })
 	);
 	const activityActiveBackground = hslToHex(
 		activityHue,
 		activityS,
-		clampAdjustedLightness(activityL, activityEffects.activeDelta, {
-			min: activityEffects.activeMin,
-			max: activityEffects.activeMax,
-		})
+		clampAdjustedLightness(activityL, ACTIVITY_EFFECTS.activeDelta, { max: ACTIVITY_EFFECTS.activeMax })
 	);
 	// Diametral (opposite) hue for the active sidebar indicator line.
 	const diametralHue = (activityHue + 180) % 360;
 	const activeBorderColor = hslToHex(
 		diametralHue,
-		activityEffects.activeBorderSaturation,
-		activityEffects.activeBorderLightness
+		ACTIVITY_EFFECTS.activeBorderSaturation,
+		ACTIVITY_EFFECTS.activeBorderLightness
 	);
 
 	channel.appendLine(
-		`Remote: "${remoteUrl}" → titleHue: ${titleHue} | Ref: "${ref}" → activityHue: ${activityHue}${grey ? ' (grey)' : ''} | mode: ${mode}`
+		`Remote: "${remoteUrl}" → titleHue: ${titleHue} | Ref: "${ref}" → activityHue: ${activityHue}${grey ? ' (grey)' : ''} | saturation: ${baseSaturation} | lightness: ${baseLightness}`
 	);
 
 	// Prefer workspace scope so other VS Code windows are not affected.
@@ -272,10 +188,10 @@ async function applyColors(channel: vscode.OutputChannel): Promise<void> {
 
 	await workbenchConfig.update('colorCustomizations', {
 		...existing,
-		'titleBar.activeBackground': hslToHex(titleHue, titleBar.saturation, titleBar.activeLightness),
-		'titleBar.activeForeground': titleBar.foreground,
-		'titleBar.inactiveBackground': hslToHex(titleHue, titleBar.saturation, titleBar.inactiveLightness),
-		'titleBar.inactiveForeground': titleBar.foreground,
+		'titleBar.activeBackground': hslToHex(titleHue, baseSaturation, titleActiveLightness),
+		'titleBar.activeForeground': FOREGROUND,
+		'titleBar.inactiveBackground': hslToHex(titleHue, baseSaturation, titleInactiveLightness),
+		'titleBar.inactiveForeground': FOREGROUND,
 		'activityBar.background': activityBackground,
 		'activityBar.activeBackground': activityActiveBackground,
 		'activityBar.foreground': activityFg,
