@@ -1,75 +1,52 @@
-# kunterbunt README
+# Kunterbunt
 
-
-Kunterbunt is a Visual Studio Code extension to colorize the app automatically based on a fixed set of rules for easy recognizeability.
-
-# Ideas for Rules
-
-* Most colors are based on HSL values, where S and L are fixed and H based on a hash.
-* Top titlebar color based on remote URL
-* Left bar: 
-  * main/master,Blue (210∘),"Stable, neutral",The baseline.
-  * feature/,Green (120∘),Normal saturation,Developing new things.
-  * bugfix/,Yellow (60∘),Slightly higher contrast,"Fixing logic, needs attention."
-  * hotfix/,Red (0∘),High Saturation (Alert),Critical production fix. Danger!
-  * release/,Purple (270∘),"Stable, slightly distinct",Preparing production.
-  * task/ / chore/,"Grey (0∘, S=0)",Low Saturation (Muted),Routine maintenance.
-  * (Any other prefix),Random Hue,Normal saturation,A creative fallback.
-  * No prefix: hash of whole branch
-* status bar: hash of whole branch
-
-## Inspirations
-
-* Peacock: https://github.com/johnpapa/vscode-peacock
-
--------------
-
-This is the README for your extension "kunterbunt". After writing up a brief description, we recommend including the following sections.
+**Give each repository its own look** — Kunterbunt automatically tints the VS Code title bar, activity bar, and status bar using colors derived from your Git remote URL and current branch, so you always know at a glance which repo and branch you are working in.
 
 ## Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+- **Repo color on the title bar** — Each repository gets a unique hue derived from its Git remote URL. The same repo always shows the same color, regardless of which branch you are on.
+- **Branch color on the activity bar and status bar** — The current branch (or tag) produces a second hue applied to the activity bar and status bar. Switching branches or tags updates the color automatically.
+- **Emoji prefix in the window title** — Two colored-square emojis (🟥🟦 etc.) are prepended to the window title so the repo and branch colors are visible even when the OS renders a native title bar that ignores the theme color.
+- **Scoped to the workspace** — Color customizations are written to the workspace-level `settings.json`, so other VS Code windows are never affected.
+- **Reliable change detection** — Kunterbunt subscribes to VS Code's built-in git extension and also directly watches `.git/HEAD`, so branch switches triggered by the status bar, the command palette, or an external tool are all detected.
+- **Graceful startup** — On slow machines or large repositories where git is not immediately ready, Kunterbunt defers the initial color application and retries with increasing back-off rather than flashing placeholder colors.
 
-For example if there is an image subfolder under your extension project workspace:
+## How It Works
 
-\!\[feature X\]\(images/feature-x.png\)
+| UI area | Hue source |
+|---|---|
+| Title bar | Hash of the Git **remote URL** + `kunterbunt.hueId` |
+| Activity bar | Hash of the current **branch / tag name** + `kunterbunt.hueId` |
+| Status bar | Same as the activity bar |
+| Window title prefix | Colored-square emojis for both hues |
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+Hues are computed with a fast 53-bit non-cryptographic hash (cyrb53), so the mapping is deterministic and stable — the same remote or branch will always produce the same color.
 
-## Requirements
-
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+The active sidebar indicator uses the *diametral* (complementary) hue of the activity bar to create a visible accent without clashing with the background.
 
 ## Extension Settings
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `kunterbunt.hueId` | `string` | `"k3f8x"` | An arbitrary salt mixed into every hue hash. Change it to shift all generated colors if two unrelated repos accidentally land on the same color. |
+| `kunterbunt.saturation` | `number` | `60` | Saturation (0–100) for all generated colors. Lower values produce greyer, more muted tones; higher values produce more vivid colors. |
+| `kunterbunt.lightness` | `number` | `25` | Lightness (0–100) for title-bar and activity-bar backgrounds. Values in the 15–40 range work best with dark themes. |
 
-For example:
+## Requirements
 
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+- VS Code **1.110.0** or later.
+- A workspace folder that is a Git repository (non-git folders are supported but will show default/no colors).
 
 ## Known Issues
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+- Only the **first** workspace folder is used to determine the title bar color in multi-root workspaces.
+- Colors are written to `workbench.colorCustomizations` in the workspace `.vscode/settings.json`. If you manually manage that key you may see conflicts.
 
 ## Release Notes
 
-Users appreciate release notes as you update your extension.
+### 0.0.1
 
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
+Initial release.
 
 ---
 
@@ -92,4 +69,7 @@ You can author your README using Visual Studio Code. Here are some useful editor
 * [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
 * [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
 
-**Enjoy!**
+
+## Inspirations
+
+* Peacock: https://github.com/johnpapa/vscode-peacock
