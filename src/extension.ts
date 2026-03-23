@@ -4,6 +4,22 @@ import { watch, existsSync } from 'fs';
 import { join } from 'path';
 import { cyrb53, hslToHex, branchToHue } from './colorUtils';
 
+// Minimal type surface for VS Code's built-in git extension API.
+// Full typings live in extensions/git/src/api/git.d.ts inside the VS Code repo.
+interface GitExtension {
+	getAPI(version: 1): GitAPI;
+}
+interface GitAPI {
+	repositories: GitRepository[];
+	onDidOpenRepository: vscode.Event<GitRepository>;
+}
+interface GitRepository {
+	state: GitRepositoryState;
+}
+interface GitRepositoryState {
+	onDidChange: vscode.Event<void>;
+}
+
 // ---------------------------------------------------------------------------
 // Git helpers
 // ---------------------------------------------------------------------------
@@ -22,14 +38,25 @@ function getGitRemoteUrl(workspaceRoot: string): string {
 }
 
 /**
- * Reads the symbolic branch name from the git repository in `workspaceRoot`.
- * Returns an empty string for detached HEAD states or when git lookup fails.
+ * Reads the current git ref for `workspaceRoot`.  Tries the symbolic branch
+ * name first.  When HEAD is detached (e.g. a tag checkout) it falls back to
+ * `git describe --tags --exact-match` to return the tag name.  Returns an
+ * empty string when neither a branch nor a tag can be determined.
  */
-function getGitBranch(workspaceRoot: string): string {
+function getGitRef(workspaceRoot: string): string {
 	try {
 		return execSync('git symbolic-ref --short HEAD', { cwd: workspaceRoot, encoding: 'utf8' }).trim();
 	} catch {
-		return '';
+		// Detached HEAD — try to resolve a tag name.
+		try {
+			return execSync('git describe --tags --exact-match HEAD', {
+				cwd: workspaceRoot,
+				encoding: 'utf8',
+				stdio: ['pipe', 'pipe', 'pipe'],
+			}).trim();
+		} catch {
+			return '';
+		}
 	}
 }
 
@@ -41,7 +68,7 @@ function getGitBranch(workspaceRoot: string): string {
 // git failures (e.g. index.lock held during rebase) and avoid overwriting
 // good colors with empty-string defaults.
 let lastRemoteUrl: string | undefined;
-let lastBranch: string | undefined;
+let lastRef: string | undefined;
 
 type KunterbuntMode = 'light' | 'dark';
 
@@ -164,7 +191,7 @@ function clampAdjustedLightness(base: number, delta: number, bounds: { min?: num
  * color customizations in a single update to avoid read-modify-write races.
  *
  * Title bar hue comes from the repository remote URL plus salt, while the
- * activity and status bar hue comes from the current branch name plus salt.
+ * activity and status bar hue comes from the current git ref (branch or tag) plus salt.
  */
 async function applyColors(channel: vscode.OutputChannel): Promise<void> {
 	const config = vscode.workspace.getConfiguration('kunterbunt');
@@ -176,23 +203,32 @@ async function applyColors(channel: vscode.OutputChannel): Promise<void> {
 
 	// --- Resolve git state, falling back to previous values on failure ---
 	let remoteUrl = workspaceRoot ? getGitRemoteUrl(workspaceRoot) : '';
-	let branch = workspaceRoot ? getGitBranch(workspaceRoot) : '';
+	let ref = workspaceRoot ? getGitRef(workspaceRoot) : '';
 
 	if (workspaceRoot && remoteUrl === '' && lastRemoteUrl !== undefined) {
 		remoteUrl = lastRemoteUrl;
 	}
-	if (workspaceRoot && branch === '' && lastBranch !== undefined) {
-		branch = lastBranch;
+	if (workspaceRoot && ref === '' && lastRef !== undefined) {
+		ref = lastRef;
 	}
+
+	// On the very first call, git may not be ready yet (workspace still
+	// initialising).  Skip writing empty-string-based colors and retry soon
+	// so we never flash the "no repo / no ref" palette on startup.
+	if (workspaceRoot && remoteUrl === '' && ref === '' && lastRemoteUrl === undefined) {
+		channel.appendLine('Git not ready yet — deferring initial color application');
+		return;
+	}
+
 	lastRemoteUrl = remoteUrl;
-	lastBranch = branch;
+	lastRef = ref;
 
 	// --- Title bar ---
 	const titleHue = cyrb53(`${remoteUrl}|${salt}`) % 360;
 	const titleBar = tuning.titleBar;
 
 	// --- Activity bar ---
-	const { hue: activityHue, grey } = branchToHue(branch, salt);
+	const { hue: activityHue, grey } = branchToHue(ref, salt);
 	const activityPalette = grey ? tuning.activity.grey : tuning.activity.default;
 	const activityEffects = tuning.activity.effects;
 	const activityS = activityPalette.saturation;
@@ -223,7 +259,7 @@ async function applyColors(channel: vscode.OutputChannel): Promise<void> {
 	);
 
 	channel.appendLine(
-		`Remote: "${remoteUrl}" → titleHue: ${titleHue} | Branch: "${branch}" → activityHue: ${activityHue}${grey ? ' (grey)' : ''} | mode: ${mode}`
+		`Remote: "${remoteUrl}" → titleHue: ${titleHue} | Ref: "${ref}" → activityHue: ${activityHue}${grey ? ' (grey)' : ''} | mode: ${mode}`
 	);
 
 	// Prefer workspace scope so other VS Code windows are not affected.
@@ -302,10 +338,62 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	};
 
-	// Apply on startup and set up HEAD watchers for all current folders.
-	scheduleApply();
+	// Apply on startup.  Git may not be available immediately in a fresh
+	// Extension Development Host, so retry with increasing back-off until
+	// we get valid git data (applyColors will bail out without writing when
+	// both remote URL and ref are empty on the first run).
+	const initialApply = async (attempt: number) => {
+		await applyColors(channel);
+		if (lastRemoteUrl === undefined && attempt < 5) {
+			const delay = 500 * (attempt + 1);
+			channel.appendLine(`Git not ready — retry #${attempt + 1} in ${delay}ms`);
+			setTimeout(() => {
+				initialApply(attempt + 1).catch(err => {
+					vscode.window.showErrorMessage(`Kunterbunt: failed to apply colors: ${err}`);
+				});
+			}, delay);
+		}
+	};
+	initialApply(0).catch(err => {
+		vscode.window.showErrorMessage(`Kunterbunt: failed to apply colors: ${err}`);
+	});
 	for (const folder of vscode.workspace.workspaceFolders ?? []) {
 		watchGitHead(folder.uri.fsPath);
+	}
+
+	// Subscribe to VS Code's built-in git extension so we detect branch/tag
+	// switches triggered via the status bar or command palette.  The fs.watch
+	// on .git/HEAD alone is not reliable for those operations.
+	const gitExtension = vscode.extensions.getExtension<GitExtension>('vscode.git');
+	if (gitExtension) {
+		const activateGitWatcher = (git: GitExtension) => {
+			const api = git.getAPI(1);
+			for (const repo of api.repositories) {
+				context.subscriptions.push(
+					repo.state.onDidChange(() => {
+						channel.appendLine('Git state changed (vscode.git) — scheduling color update');
+						scheduleApply();
+					})
+				);
+			}
+			context.subscriptions.push(
+				api.onDidOpenRepository(repo => {
+					context.subscriptions.push(
+						repo.state.onDidChange(() => {
+							channel.appendLine('Git state changed (vscode.git) — scheduling color update');
+							scheduleApply();
+						})
+					);
+				})
+			);
+		};
+		if (gitExtension.isActive) {
+			activateGitWatcher(gitExtension.exports);
+		} else {
+			gitExtension.activate().then(exports => {
+				activateGitWatcher(exports);
+			});
+		}
 	}
 
 	// Re-apply when kunterbunt settings (mode, salt) change.
